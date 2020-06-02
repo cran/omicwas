@@ -4,7 +4,9 @@
 \name{GSE42861small}
 \alias{GSE42861small}
 \title{Small Subset of GSE42861 Dataset From GEO}
-\format{An object of class \code{list} of length 4.}
+\format{
+An object of class \code{list} of length 4.
+}
 \source{
 \href{https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE42861}{GEO}
 }
@@ -18,9 +20,9 @@ A subset of 500 CpG sites were randomly selected from the original EWAS dataset.
 \examples{
 data(GSE42861small)
 X = GSE42861small$X
+W = GSE42861small$W
 Y = GSE42861small$Y
 Y = Y[seq(1, 20), ] # for brevity
-W = GSE42861small$W
 C = GSE42861small$C
 result = ctassoc(X, W, Y, C = C)
 result$coefficients

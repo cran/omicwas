@@ -1,0 +1,202 @@
+---
+title: "Introduction to omicwas"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to omicwas}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Installation
+
+```{r, eval = FALSE}
+install.packages("devtools")
+devtools::install_github("fumi-github/omicwas")
+```
+
+If you encounter dependency error for `sva` package, install it from Bioconductor:
+
+```{r, eval = FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+   install.packages("BiocManager")
+BiocManager::install("sva")
+```
+
+## Usage
+
+`omicwas` is a package for cell-type-specific disease association testing,
+using bulk tissue data as input.
+The package accepts DNA methylation data for epigenome-wide association studies (EWAS),
+as well as gene expression data for differential gene expression analyses.
+The main function is `ctassoc`
+
+```{r setup}
+library(omicwas)
+```
+
+See description.
+
+```{r}
+?ctassoc
+```
+
+## Analyzing DNA methylation
+
+Let's load a sample data.
+
+```{r}
+data(GSE42861small)
+X = GSE42861small$X
+W = GSE42861small$W
+Y = GSE42861small$Y
+Y = Y[seq(1, 20), ] # for brevity
+C = GSE42861small$C
+```
+
+See description.
+
+```{r}
+?GSE42861small
+```
+
+The conventional way is to use ordinary linear regression.
+
+```{r}
+result = ctassoc(X, W, Y, C = C,
+                 test = "full")
+result$coefficients
+```
+
+We recommend nonlinear regression with ridge regularization.
+For DNA methylation, we use the **logit** function for normalization,
+and the test option is `nls.logit`
+
+```{r}
+result = ctassoc(X, W, Y, C = C,
+                 test = "nls.logit",
+                 regularize = TRUE)
+print(result$coefficients, n = 20)
+```
+
+The first 19 lines show the result for CpG site cg10543797.
+Line 1 shows that the basal methylation level in CD4.
+(actually CD4+ T cells) is
+plogis(1.498) = 0.817, so this cell type is 81% methylated.
+Line 8 shows that the CD4.-specific effect of the disease
+is 7.10e-04	(in logit scale).
+Since the p.value is 0.64, this is not significant.
+Line 15 shows that the effect of sexF (female compared to male) is
+-4.14e-02 with a small p.value 9.15e-05.
+Since sexF is a covariate that has uniform effect across cell types,
+the celltype column is NA.
+
+## Analyzing gene expression
+
+Let's load a sample data.
+
+```{r}
+data(GTExsmall)
+X = GTExsmall$X
+W = GTExsmall$W
+Y = GTExsmall$Y + 1
+Y = Y[seq(1, 20), ] # for brevity
+C = GTExsmall$C
+```
+
+See description.
+
+```{r}
+?GTExsmall
+```
+
+The conventional way is to use ordinary linear regression.
+
+```{r}
+result = ctassoc(X, W, Y, C = C,
+                 test = "full")
+result$coefficients
+```
+
+We recommend nonlinear regression with ridge regularization.
+For DNA methylation, we use the **log** function for normalization,
+and the test option is `nls.log`
+
+```{r}
+result = ctassoc(X, W, Y, C = C,
+                 test = "nls.log",
+                 regularize = TRUE)
+print(result$coefficients, n = 15)
+```
+
+The first 13 lines show the result for transcript ENSG00000059804.
+Line 1 shows that the basal expression level in Granulocytes is
+exp(8.847) = 6955.
+Line 7 shows that the Granulocytes-specific effect of age
+is 4.62e-04	(in log scale).
+Since the p.value is 0.82, this is not significant.
+Line 13 shows that the effect of sexF (female compared to male) is
+-2.57e-03 with p.value 0.97
+Since sexF is a covariate that has uniform effect across cell types,
+the celltype column is NA.
+
+## Analyzing mQTL
+
+For QTL analyses, we use `ctcisQTL` function instead of `ctassoc`.
+To speed up computation, we perform linear ridge regression,
+thus the statistical test is almost identical to `ctassoc(test = "nls.identity", regularize = TRUE)`.
+We analyze only in the linear scale.
+Association analysis is performed between each row of Y and each row of X.
+See description.
+
+```{r}
+?ctcisQTL
+```
+
+Let's load a sample data.
+
+```{r}
+data(GSE79262small)
+X    = GSE79262small$X
+Xpos = GSE79262small$Xpos
+W    = GSE79262small$W
+Y    = GSE79262small$Y
+Ypos = GSE79262small$Ypos
+C    = GSE79262small$C
+X    = X[seq(1, 3001, 100), ] # for brevity
+Xpos = Xpos[seq(1, 3001, 100)]
+Y    = Y[seq(1, 501, 100), ]
+Ypos = Ypos[seq(1, 501, 100)]
+```
+
+See description.
+
+```{r}
+?GSE79262small
+```
+
+Analyze mQTL.
+
+```{r}
+ctcisQTL(X, Xpos, W, Y, Ypos, C = C)
+```
+
+The result is stored in a file.
+
+```{r}
+head(
+  read.table(file.path(tempdir(), "ctcisQTL.out.txt"),
+             header = TRUE,
+             sep ="\t"))
+```
+
+The first 3 lines show the result for the association of
+SNP rs6678176 with CpG site cg19251656.
+Line 1 shows that the CD4T-specific effect of the SNP is -0.003.
+Since the p.value is 0.75, this is not significant.

@@ -12,11 +12,8 @@ ctcisQTL(
   Ypos,
   C = NULL,
   max.pos.diff = 1e+06,
-  nPC = NULL,
   outdir = tempdir(),
-  outfile = "ctcisQTL.out.txt",
-  num.cores = 1,
-  seed = 123
+  outfile = "ctcisQTL.out.txt"
 )
 }
 \arguments{
@@ -24,7 +21,7 @@ ctcisQTL(
 
 \item{Xpos}{Vector of the physical position of X}
 
-\item{W}{Matrix of proportion of cell types; samples x cell types.}
+\item{W}{Matrix of cell type composition; samples x cell types.}
 
 \item{Y}{Matrix (or vector) of bulk omics measurements; markers x samples.}
 
@@ -34,23 +31,14 @@ ctcisQTL(
 X, Xpos, W, Y, Ypos, C should be numeric.}
 
 \item{max.pos.diff}{Maximum positional difference to compute cis-QTL.
-Association is computed between a row of X and a row of Y,
-only when thet are within this limit.
+Association analysis is performed between a row of X and a row of Y,
+only when they are within this limit.
 Since the limiting is only by position, the function needs to be run
 separately for each chromosome.}
-
-\item{nPC}{A hyperparameter that (indirectly) specifies the penalty
-for ridge regression.  If \code{NULL}, it is inferred from the data.
-A unique hyperparameter is applied to all SNP-marker pairs.}
 
 \item{outdir}{Output directory.}
 
 \item{outfile}{Output file.}
-
-\item{num.cores}{Number of CPU cores to use.
-Full and marginal tests are run in serial, thus num.cores is ignored.}
-
-\item{seed}{Seed for random number generation.}
 }
 \value{
 The estimate, statistic, p.value are written to the specified file.
@@ -59,17 +47,23 @@ The estimate, statistic, p.value are written to the specified file.
 Cell-Type-Specific QTL analysis
 }
 \details{
-The functionality is almost the same as the ridge test
-in ctassoc.
-Association is tested between each row of Y and each row of X.
+A function for analyses of QTL, such as eQTL, mQTL, pQTL.
+The statistical test is almost identical to
+\code{ctassoc(test =  "nls.identity", regularize = "TRUE")}.
+Association analysis is performed between each row of Y and each row of X.
 Usually, the former will be a methylation/expression marker,
 and the latter will be a SNP.
 To cope with the large number of combinations,
 the testing is limited to pairs whose position is within
-the difference specified by \code{max.pos.diff}
-In addition, a uniform hyperparameter of ridge regression is used
-for all pairs.
-We use the \link[ridge]{linearRidge} function of the ridge package.
+the difference specified by \code{max.pos.diff}; i.e., limited to cis-QTL.
+In detail, this function performs linear ridge regression,
+whereas \code{ctassoc(test =  "nls.identity", regularize = "TRUE")}
+actually is nonlinear regression
+but with \eqn{f} = identity as normalizing transformation.
+In order to speed up computation, first, the parameters \eqn{\alpha_{h j}} and
+\eqn{\gamma_{j l}} are fit by ordinary linear regression assuming \eqn{\beta_{h j k} = 0}.
+Next, \eqn{\beta_{h j k}} are fit and tested by
+linear ridge regression (see documentation for \link[omicwas]{ctassoc}).
 }
 \examples{
 \donttest{
@@ -80,12 +74,12 @@ W    = GSE79262small$W
 Y    = GSE79262small$Y
 Ypos = GSE79262small$Ypos
 C    = GSE79262small$C
-Y    = Y[seq(1, 601, 20), ] # for brevity
-Ypos = Ypos[seq(1, 601, 20)]
+X    = X[seq(1, 3601, 100), ] # for brevity
+Xpos = Xpos[seq(1, 3601, 100)]
 ctcisQTL(X, Xpos, W, Y, Ypos, C = C)
 }
 
 }
 \seealso{
-ctRUV
+ctassoc
 }

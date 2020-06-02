@@ -4,10 +4,10 @@ Cell-Type-Specific Disease Association Testing in Bulk Omics Experiments
 
 ## Installation in R
 
-Run the following in R:
+In order to install the most recent version:
 
     install.packages("devtools")
-    devtools::install_github("fumi-github/omicwas")
+    devtools::install_github("fumi-github/omicwas", build_vignettes = TRUE)
 
 If you encounter dependency error for `sva` package,
 install it from Bioconductor:
@@ -16,10 +16,18 @@ install it from Bioconductor:
         install.packages("BiocManager")
     BiocManager::install("sva")
 
+To install from CRAN archive (possibly a version older than github):
+
+    install.packages("omicwas")
+
+To uninstall package:
+
+    remove.packages("omicwas")
+
 ## Usage
 
     library(omicwas)
-    ?ctassoc
+    vignette("intro", package = "omicwas")
 
 ## Information
 

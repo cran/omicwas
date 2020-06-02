@@ -6,14 +6,14 @@
 #' \eqn{h} for cell type, \eqn{i} for sample,
 #' \eqn{j} for marker (CpG site or gene),
 #' \eqn{k} for each trait that has cell-type-specific effect,
-#' and \eqn{l} for each trait that has bulk tissue effect.
+#' and \eqn{l} for each trait that has a uniform effect across cell types.
 #' The input data are \eqn{X_{i k}}, \eqn{C_{i l}}, \eqn{W_{i h}} and \eqn{Y_{j i}},
 #' where \eqn{C_{i l}} can be omitted.
-#' \eqn{X_{i k}} and \eqn{C_{i l}} are the two types of traits,
+#' \eqn{X_{i k}} and \eqn{C_{i l}} are the values for two types of traits,
 #' showing effects that are cell-type-specific or not, respectively.
 #' Thus, calling \eqn{X_{i k}} and \eqn{C_{i l}} as "traits" and "covariates"
 #' gives a rough idea, but is not strictly correct.
-#' \eqn{W_{i h}} represents the cell type proportion and
+#' \eqn{W_{i h}} represents the cell type composition and
 #' \eqn{Y_{j i}} represents the marker level,
 #' such as methylation or gene expression.
 #' For each tissue sample, the cell type proportion \eqn{W_{i h}}
@@ -21,46 +21,73 @@
 #' which is measured or imputed beforehand.
 #' The marker level \eqn{Y_{j i}} in bulk tissue is measured and provided as input.
 #'
-#' The cell-type-specific marker level \eqn{Z_{h j i}} is not observed
-#' and is treated as a hidden variable.
 #' The parameters we estimate are
-#' the effect of cell-type-specific traits \eqn{\beta_{h j k}},
-#' the effect of non-specific traits \eqn{\gamma_{j l}},
-#' and the cell-type-specific basal marker level \eqn{\mu_{h j}}.
+#' the cell-type-specific trait effect \eqn{\beta_{h j k}},
+#' the tissue-uniform trait effect \eqn{\gamma_{j l}},
+#' and the basal marker level \eqn{\alpha_{h j}} in each cell type.
 #'
-#' We assume normal distribution for the cell-type-specific marker level,
-#' \deqn{Z_{h j i} ~ N(\mu_{h j} + \sum_k \beta_{h j k} * X_{i k}, \sigma^2_{h j}).}
-#' Since the bulk tissue marker level is the sum weighted by \eqn{W_{i h}},
-#' \deqn{Y_{j i} ~ N(\sum_h W_{i h} [\mu_{h j} + \sum_k \beta_{h j k} * X_{i k}] +
-#'                   \sum_l \gamma_{j l} C_{i l}, \tau^2_j).}
-#' Although formally, the variance comprises of components of cell type level
-#' and tissue level, we approximate and unify into \eqn{\tau^2_j}.
+#' We first describe the conventional linear regression models.
+#' For marker \eqn{j} in sample \eqn{i},
+#' the maker level specific to cell type \eqn{h} is
+#' \deqn{\alpha_{h j} + \sum_k \beta_{h j k} * X_{i k}.}
+#' This is a representative value rather than a mean, because we do not model
+#' a probability distribution for cell-type-specific expression.
+#' The bulk tissue marker level is the average weighted by \eqn{W_{i h}},
+#' \deqn{\mu_{j i} = \sum_h W_{i h} [ \alpha_{h j} + \sum_k \beta_{h j k} * X_{i k} ] +
+#'                   \sum_l \gamma_{j l} C_{i l}.}
+#' The statistical model is
+#' \deqn{Y_{j i} = \mu_{j i} + \epsilon_{j i},}
+#' \deqn{\epsilon_{j i} ~ N(0, \sigma^2_j).}
+#' The error of the marker level is is noramlly distributed with variance
+#' \eqn{\sigma^2_j}, independently among samples.
 #'
 #' The \code{full} model is the linear regression
-#' \deqn{Y_{j i} ~ (\sum_h \mu_{h j} * W_{i h}) +
+#' \deqn{Y_{j i} = (\sum_h \alpha_{h j} * W_{i h}) +
 #'                 (\sum_{h k} \beta_{h j k} * W_{i h} * X_{i k}) +
 #'                 (\sum_l \gamma_{j l} * C_{i l}) +
 #'                 error.}
-#' The \code{ridge} model aims to cope with multicollinearity of
-#' the interacting terms \eqn{W_{i h} * X_{i k}}.
-#' It first adjusts for \eqn{\mu_{h j}} and \eqn{\gamma_{j l}}
-#' by fitting linear regression and taking the residuals.
-#' Afterwards, ridge regression is used to fit \eqn{\beta_{h j k}}.
-#' We use the \link[ridge]{linearRidge} function of the ridge package.
 #' The \code{marginal} model tests the trait association only in one
 #' cell type \eqn{h}, under the linear regression,
-#' \deqn{Y_{j i} ~ (\sum_{h'} \mu_{h' j} * W_{i h'}) +
+#' \deqn{Y_{j i} = (\sum_{h'} \alpha_{h' j} * W_{i h'}) +
 #'                 (\sum_k \beta_{h j k} * W_{i h} * X_{i k}) +
 #'                 (\sum_l \gamma_{j l} * C_{i l}) +
 #'                 error.}
 #'
+#' The nonlinear model simultaneously analyze cell type composition in
+#' linear scale and differential expression/methylation in log/logit scale.
+#' The normalizing function is the natural logarithm \eqn{f} = log for gene
+#' expression, and \eqn{f} = logit for methylation. Conventional linear regression
+#' can be formulated by defining \eqn{f} as the identity function. The three models
+#' are named \code{nls.log}, \code{nls.logit} and \code{nls.identity}.
+#' We denote the inverse function of \eqn{f} by \eqn{g}; \eqn{g} = exp for
+#' gene expression, and \eqn{g} = logistic for methylation.
+#' The mean normalized marker level of marker \eqn{j} in sample \eqn{i} becomes
+#' \deqn{\mu_{j i} = f(\sum_h W_{i h} g( \alpha_{h j} + \sum_k \beta_{h j k} * X_{i k} )) +
+#'                   \sum_l \gamma_{j l} C_{i l}.}
+#' The statistical model is
+#' \deqn{f(Y_{j i}) = \mu_{j i} + \epsilon_{j i},}
+#' \deqn{\epsilon_{j i} ~ N(0, \sigma^2_j).}
+#' The error of the marker level is is noramlly distributed with variance
+#' \eqn{\sigma^2_j}, independently among samples.
+#'
+#' The ridge regression aims to cope with multicollinearity of
+#' the interacting terms \eqn{W_{i h} * X_{i k}}.
+#' Ridge regression is fit by minimizing the residual sum of squares (RSS) plus
+#' \eqn{\lambda \sum_{h k} \beta_{h j k}^2}, where \eqn{\lambda > 0} is the
+#' regularization parameter.
+#'
 #' @param X Matrix (or vector) of traits; samples x traits.
-#' @param W Matrix of proportion of cell types; samples x cell types.
+#' @param W Matrix of cell type composition; samples x cell types.
 #' @param Y Matrix (or vector) of bulk omics measurements; markers x samples.
 #' @param C Matrix (or vector) of covariates; samples x covariates.
 #' X, W, Y, C should be numeric.
-#' @param test Statistical test to apply; either \code{"reducedrankridge"},
-#' \code{"ridge"}, \code{"full"} or \code{"marginal"}.
+#' @param test Statistical test to apply; either \code{"full"}, \code{"marginal"},
+#' \code{"nls.identity"}, \code{"nls.log"}, \code{"nls.logit"} or \code{"reducedrankridge"}.
+#' @param regularize Whether to apply Tikhonov (ie ridge) regularization
+#' to \eqn{\beta_{h j k}}.
+#' The regularization parameter is chosen automatically according to
+#' an unbiased version of (Lawless & Wang, 1976).
+#' Effective for \code{nls.*} tests.
 #' @param num.cores Number of CPU cores to use.
 #' Full and marginal tests are run in serial, thus num.cores is ignored.
 #' @param chunk.size The size of job for a CPU core in one batch.
@@ -69,15 +96,25 @@
 #' @param seed Seed for random number generation.
 #' @return A list with one element, which is named "coefficients".
 #' The element gives the estimate, statistic, p.value in tibble format.
-#' @seealso ctRUV
+#' In order to transform the estimate for \eqn{\alpha_{h j}} to the original scale,
+#' apply \code{plogis} for \code{test = nls.logit} and
+#' \code{exp} for \code{test = nls.log}.
+#' The estimate for \eqn{\beta_{h j k}} by \code{test = nls.log} is
+#' the natural logarithm of fold-change, not the log2.
+#' If numerical convergence fails, \code{NA} is returned for that marker.
+#' @references
+#' Lawless, J. F., & Wang, P. (1976). A simulation study of ridge and other
+#' regression estimators.
+#' Communications in Statistics - Theory and Methods, 5(4), 307–323.
+#' \url{https://doi.org/10.1080/03610927608827353}
+#' @seealso ctcisQTL
 #' @examples
 #' \donttest{
 #' data(GSE42861small)
 #' X = GSE42861small$X
-#' Y = GSE42861small$Y
 #' W = GSE42861small$W
+#' Y = GSE42861small$Y
 #' C = GSE42861small$C
-#' Y = ctRUV(X, W, Y, C = C)
 #' result = ctassoc(X, W, Y, C = C)
 #' result$coefficients
 #' }
@@ -89,23 +126,22 @@
 #' @importFrom magrittr %>%
 #' @importFrom matrixStats colSds
 #' @importFrom parallel makeCluster parApply stopCluster
-#' @importFrom ridge linearRidge
 #' @importFrom rlang .data abort inform
-#' @importFrom R.utils withTimeout
-#' @importFrom stats lm pnorm quantile
+#' @importFrom stats coef lm median nls nls.control pnorm plogis pt qlogis quantile residuals sd
 #' @importFrom tidyr pivot_longer
 #' @importFrom utils getFromNamespace setTxtProgressBar txtProgressBar
 #' @export
 ctassoc = function (X, W, Y, C = NULL,
-                    test = "ridge",
+                    test = "full",
+                    regularize = FALSE,
                     # alpha = 0,
                     # lower.limit = NULL,
                     # upper.limit = NULL,
                     num.cores = 1,
                     chunk.size = 1000,
                     seed = 123) {
-  if (!(test %in% c("reducedrankridge", "ridge", "full", "marginal"))) {
-    abort('Error: test must be either "reducedrankridge", "ridge", "full", "marginal"')
+  if (!(test %in% c("reducedrankridge", "full", "marginal", "nls.identity", "nls.log", "nls.logit"))) {
+    abort('Error: test must be either "reducedrankridge", "full", "marginal", "nls.identity", "nls.log", "nls.logit"')
   }
   X = .as.matrix(X, d = "vertical", nam = "X")
   W = .as.matrix(W, d = "vertical", nam = "W")
@@ -114,16 +150,35 @@ ctassoc = function (X, W, Y, C = NULL,
     C = .as.matrix(C, d = "vertical", nam = "C")
   }
   .check_input(X, W, Y, C)
-  X = .colcenteralize(X)
+  X = .colcenter(X)
+  if (!is.null(C)) {
+    C = .colcenter(C)
+  }
   switch(test, "reducedrankridge" = {
     .full_assoc(X, W, Y, C,
                 test = test,
                 num.cores = num.cores,
                 chunk.size = chunk.size,
                 seed = seed)
-  }, "ridge" = {
+  }, "nls.identity" = {
     .full_assoc(X, W, Y, C,
-                test = test,
+                test = "nls",
+                nls.link = "identity",
+                regularize = regularize,
+                num.cores = num.cores,
+                chunk.size = chunk.size)
+  }, "nls.log" = {
+    .full_assoc(X, W, Y, C,
+                test = "nls",
+                nls.link = "log",
+                regularize = regularize,
+                num.cores = num.cores,
+                chunk.size = chunk.size)
+  }, "nls.logit" = {
+    .full_assoc(X, W, Y, C,
+                test = "nls",
+                nls.link = "logit",
+                regularize = regularize,
                 num.cores = num.cores,
                 chunk.size = chunk.size)
   # }, "glmnet" = {
@@ -178,7 +233,10 @@ ctRUV = function (X, W, Y, C = NULL,
     C = .as.matrix(C, d = "vertical", nam = "C")
   }
   .check_input(X, W, Y, C)
-  X = .colcenteralize(X)
+  X = .colcenter(X)
+  if (!is.null(C)) {
+    C = .colcenter(C)
+  }
   X1W = as.matrix(do.call(cbind, apply(W, 2, function(W_h) {cbind(as.data.frame(X), 1) * W_h})))
   switch(method, "PCA" = {
     if (is.null(C)) {
@@ -252,14 +310,14 @@ ctRUV = function (X, W, Y, C = NULL,
   return(X)
 }
 
-.colcenteralize = function (m) {
+.colcenter = function (m) {
   m -	matrix(colMeans(m, na.rm = TRUE),
              nrow = nrow(m),
              ncol = ncol(m),
              byrow = TRUE)
 }
 
-.rowcenteralize = function (m) {
+.rowcentralize = function (m) {
   m -	rowMeans(m, na.rm = TRUE)
 }
 
@@ -309,6 +367,8 @@ ctRUV = function (X, W, Y, C = NULL,
 
 .full_assoc = function (X, W, Y, C,
                         test,
+                        nls.link,
+                        regularize = TRUE,
                         alpha,
                         lower.limit,
                         upper.limit,
@@ -336,6 +396,12 @@ ctRUV = function (X, W, Y, C = NULL,
   colnames(W) = gsub("\\.", "_", colnames(W))
   X1W = as.matrix(do.call(cbind, apply(W, 2, function(W_h) {cbind(as.data.frame(X), 1) * W_h})))
   XW = X1W[, -c((ncol(X)+1)*(1:ncol(W)))]
+  oneXotimesW =
+    as.matrix(do.call(cbind, apply(cbind(1, as.data.frame(X)),
+                                   2,
+                                   function(X_k) {as.data.frame(W) * X_k})))
+  colnames(oneXotimesW) =
+    sub('([^.]*)\\.([^.]*)', '\\2.\\1', colnames(oneXotimesW), perl = TRUE)
 
   switch(test, "full" = { # --------------------------------
     inform("Linear regression ...")
@@ -358,14 +424,14 @@ ctRUV = function (X, W, Y, C = NULL,
       tYadjW = lm(y ~ x,
                   data = list(y = t(Y), x = cbind(W, C)))$residuals
     }
-    tYadjW = .colcenteralize(tYadjW)
+    tYadjW = .colcenter(tYadjW)
     rm(Y)
     gc()
     tYadjW_colSds = matrixStats::colSds(tYadjW)
     tYadjWsc = t(t(tYadjW) / tYadjW_colSds)
     rm(tYadjW)
     gc()
-    XW = .colcenteralize(XW)
+    XW = .colcenter(XW)
     XW_colSds = matrixStats::colSds(XW)
     XWsc = t(t(XW) / XW_colSds)
 
@@ -537,28 +603,318 @@ ctRUV = function (X, W, Y, C = NULL,
     # SE = as.data.frame(SE)
     # colnames(estimate) = colnames(SE) = colnames(X1W)
 
-  }, "ridge" = { # -----------------------------------------
-    inform("Ridge regression ...")
-    # First regress out the intercepts,
-    # because all variables are regularized in the ridge package.
-    if (is.null(C)) {
-      tYadjW = lm(y ~ x,
-                  data = list(y = t(Y), x = W))$residuals
-    } else {
-      tYadjW = lm(y ~ x,
-                  data = list(y = t(Y), x = cbind(W, C)))$residuals
-    }
+  }, "nls" = { # -----------------------------------------
+    inform(paste0("nls.", nls.link, " ..."))
+    batchsize = num.cores * chunk.size
+    totalsize = nrow(Y)
+    nbatches = ceiling(totalsize / batchsize)
+
+    switch(
+      nls.link,
+      logit = {
+        if (min(Y, na.rm = TRUE) < 0 | max(Y, na.rm = TRUE) > 1) {
+          abort("Error: for test = nls.logit, values of Y must be between 0 and 1")
+        }
+        if (min(Y, na.rm = TRUE) == 0 | max(Y, na.rm = TRUE) == 1) {
+          Y = 0.998 * Y + 0.001
+        }
+        Y = qlogis(Y)
+      }, log = {
+        if (min(Y, na.rm = TRUE) <= 0) {
+          abort("Error: for test = nls.log, values of Y must be positive")
+        }
+        Y = log(Y)
+      })
+    Yff = ff::ff(
+      Y,
+      dim = dim(Y),
+      dimnames = dimnames(Y))
     rm(Y)
     gc()
-    batchsize = num.cores * chunk.size
-    totalsize = ncol(tYadjW)
-    nbatches = ceiling(totalsize/batchsize)
-    tYadjWff = ff::ff(
-      tYadjW,
-      dim = dim(tYadjW),
-      dimnames = dimnames(tYadjW))
-    rm(tYadjW)
-    gc()
+
+    mu = switch(nls.link, "identity" = { # --------------------
+      if (is.null(C)) {
+        function (X, W, oneXotimesW, alpha, beta, sqrtlambda,
+                  gradientalpha = FALSE,
+                  gradientwithoutalpha = FALSE) {
+          beta = matrix(beta, nrow = ncol(W))
+          res =
+            c(rowSums(W * (rep(1, nrow(X)) %*% t(alpha) + X %*% t(beta))),
+              sqrtlambda * beta)
+          attr(res, "gradient") =
+            rbind(oneXotimesW,
+                  cbind(matrix(0, nrow = length(beta), ncol = length(alpha)),
+                        diag(rep(sqrtlambda, length(beta)))))
+          attr(res, "hessian") = function () {
+            rep(
+              list(diag(rep(0, ncol(oneXotimesW)))),
+              nrow(X))
+          }
+          if (gradientalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, 1:length(alpha)]
+          }
+          if (gradientwithoutalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, -(1:length(alpha))]
+          }
+          return(res)
+        }
+      } else {
+        function (X, W, C, oneXotimesW, alpha, beta, gamma, sqrtlambda,
+                  gradientalpha = FALSE,
+                  gradientwithoutalpha = FALSE) {
+          beta = matrix(beta, nrow = ncol(W))
+          res =
+            c(rowSums(W * (rep(1, nrow(X)) %*% t(alpha) + X %*% t(beta))) +
+                C %*% gamma,
+              sqrtlambda * beta)
+          attr(res, "gradient") =
+            rbind(cbind(oneXotimesW, C),
+                  cbind(matrix(0, nrow = length(beta), ncol = length(alpha)),
+                        diag(rep(sqrtlambda, length(beta))),
+                        matrix(0, nrow = length(beta), ncol = length(gamma))))
+          attr(res, "hessian") = function () {
+            rep(
+              list(diag(rep(0, ncol(oneXotimesW) + ncol(C)))),
+              nrow(X))
+          }
+          if (gradientalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, 1:length(alpha)]
+          }
+          if (gradientwithoutalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, -(1:length(alpha))]
+          }
+          return(res)
+        }
+      }
+    }, "log" = { # ----------------------------------------
+      if (is.null(C)) {
+        function (X, W, oneXotimesW, alpha, beta, sqrtlambda,
+                  gradientalpha = FALSE,
+                  gradientwithoutalpha = FALSE) {
+          beta = matrix(beta, nrow = ncol(W))
+          g_i_h = exp(rep(1, nrow(X)) %*% t(alpha) + X %*% t(beta))
+          g_i_h[is.infinite(g_i_h)] = .Machine$double.xmax
+          Wlog =
+            W * g_i_h /
+            (rowSums(W * g_i_h) %*% t(rep(1, ncol(W))))
+          res = c(log(rowSums(W * g_i_h)),
+                  sqrtlambda * beta)
+          attr(res, "gradient") =
+            rbind(
+              as.matrix(
+                do.call(cbind,
+                        apply(cbind(1, X),
+                              2,
+                              function(X_k) {as.data.frame(Wlog) * X_k}))),
+              cbind(
+                matrix(0, nrow = length(beta), ncol = length(alpha)),
+                diag(rep(sqrtlambda, length(beta)))))
+          attr(res, "hessian") = function () {
+            mapply(
+              function (x, w) {
+                list(
+                  matrix(x, nrow = ncol(X) + 1) %x%
+                    matrix(w, nrow = ncol(Wlog))) },
+              as.data.frame(
+                apply(
+                  cbind(1, X),
+                  1,
+                  function (x) { x %*% t(x) })),
+              as.data.frame(
+                apply(
+                  Wlog,
+                  1,
+                  function (x) { diag(x) - x %*% t(x) })))
+          }
+          if (gradientalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, 1:length(alpha)]
+          }
+          if (gradientwithoutalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, -(1:length(alpha))]
+          }
+          return(res)
+        }
+      } else {
+        function (X, W, C, oneXotimesW, alpha, beta, gamma, sqrtlambda,
+                  gradientalpha = FALSE,
+                  gradientwithoutalpha = FALSE) {
+          beta = matrix(beta, nrow = ncol(W))
+          g_i_h = exp(rep(1, nrow(X)) %*% t(alpha) + X %*% t(beta))
+          g_i_h[is.infinite(g_i_h)] = .Machine$double.xmax
+          Wlog =
+            W * g_i_h /
+            (rowSums(W * g_i_h) %*% t(rep(1, ncol(W))))
+          res = c(log(rowSums(W * g_i_h)) + C %*% gamma,
+                  sqrtlambda * beta)
+          attr(res, "gradient") =
+            rbind(
+              cbind(
+                as.matrix(
+                  do.call(cbind,
+                          apply(cbind(1, X),
+                                2,
+                                function(X_k) {as.data.frame(Wlog) * X_k}))),
+                C),
+              cbind(
+                matrix(0, nrow = length(beta), ncol = length(alpha)),
+                diag(rep(sqrtlambda, length(beta))),
+                matrix(0, nrow = length(beta), ncol = length(gamma))))
+          attr(res, "hessian") = function () {
+            mapply(
+              function (x, w) {
+                m =
+                  matrix(x, nrow = ncol(X) + 1) %x%
+                    matrix(w, nrow = ncol(Wlog))
+                m = rbind(m,
+                          matrix(0, nrow = length(gamma), ncol = ncol(m)))
+                m = cbind(m,
+                          matrix(0, nrow = nrow(m), ncol = length(gamma)))
+                list(m) },
+              as.data.frame(
+                apply(
+                  cbind(1, X),
+                  1,
+                  function (x) { x %*% t(x) })),
+              as.data.frame(
+                apply(
+                  Wlog,
+                  1,
+                  function (x) { diag(x) - x %*% t(x) })))
+          }
+          if (gradientalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, 1:length(alpha)]
+          }
+          if (gradientwithoutalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, -(1:length(alpha))]
+          }
+          return(res)
+        }
+      }
+    }, "logit" = { # ----------------------------------------
+      if (is.null(C)) {
+        function (X, W, oneXotimesW, alpha, beta, sqrtlambda,
+                  gradientalpha = FALSE,
+                  gradientwithoutalpha = FALSE) {
+          beta = matrix(beta, nrow = ncol(W))
+          g_i_h = plogis(rep(1, nrow(X)) %*% t(alpha) + X %*% t(beta))
+          Wlogit =
+            W * g_i_h * (1 - g_i_h) /
+            ((rowSums(W * g_i_h) * (1 - rowSums(W * g_i_h))) %*% t(rep(1, ncol(W))))
+          res = c(qlogis(rowSums(W * g_i_h)),
+                  sqrtlambda * beta)
+          attr(res, "gradient") =
+            rbind(
+              as.matrix(
+                do.call(cbind,
+                        apply(cbind(1, X),
+                              2,
+                              function(X_k) {as.data.frame(Wlogit) * X_k}))),
+              cbind(
+                matrix(0, nrow = length(beta), ncol = length(alpha)),
+                diag(rep(sqrtlambda, length(beta)))))
+          attr(res, "hessian") = function () {
+            mapply(
+              function (x, w) {
+                list(
+                  matrix(x, nrow = ncol(X) + 1) %x%
+                    matrix(w, nrow = ncol(Wlogit))) },
+              as.data.frame(
+                apply(
+                  cbind(1, X),
+                  1,
+                  function (x) { x %*% t(x) })),
+              as.data.frame(
+                apply(
+                  (1 - 2 * g_i_h) * Wlogit,
+                  1,
+                  diag) -
+                  sapply(
+                    1 - 2 * rowSums(W * g_i_h),
+                    function (x) {
+                      matrix(x,
+                             nrow = ncol(W),
+                             ncol = ncol(W))}) *
+                  apply(
+                    Wlogit,
+                    1,
+                    function (x) { x %*% t(x) })))
+          }
+          if (gradientalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, 1:length(alpha)]
+          }
+          if (gradientwithoutalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, -(1:length(alpha))]
+          }
+          return(res)
+        }
+      } else {
+        function (X, W, C, oneXotimesW, alpha, beta, gamma, sqrtlambda,
+                  gradientalpha = FALSE,
+                  gradientwithoutalpha = FALSE) {
+          beta = matrix(beta, nrow = ncol(W))
+          g_i_h = plogis(rep(1, nrow(X)) %*% t(alpha) + X %*% t(beta))
+          Wlogit =
+            W * g_i_h * (1 - g_i_h) /
+            ((rowSums(W * g_i_h) * (1 - rowSums(W * g_i_h))) %*% t(rep(1, ncol(W))))
+          res = c(qlogis(rowSums(W * g_i_h)) + C %*% gamma,
+                  sqrtlambda * beta)
+          attr(res, "gradient") =
+            rbind(
+              cbind(
+                as.matrix(
+                  do.call(cbind,
+                          apply(cbind(1, X),
+                                2,
+                                function(X_k) {as.data.frame(Wlogit) * X_k}))),
+                C),
+              cbind(
+                matrix(0, nrow = length(beta), ncol = length(alpha)),
+                diag(rep(sqrtlambda, length(beta))),
+                matrix(0, nrow = length(beta), ncol = length(gamma))))
+          attr(res, "hessian") = function () {
+            mapply(
+              function (x, w) {
+                m =
+                  matrix(x, nrow = ncol(X) + 1) %x%
+                  matrix(w, nrow = ncol(Wlogit))
+                m = rbind(m,
+                          matrix(0, nrow = length(gamma), ncol = ncol(m)))
+                m = cbind(m,
+                          matrix(0, nrow = nrow(m), ncol = length(gamma)))
+                list(m) },
+              as.data.frame(
+                apply(
+                  cbind(1, X),
+                  1,
+                  function (x) { x %*% t(x) })),
+              as.data.frame(
+                apply(
+                  (1 - 2 * g_i_h) * Wlogit,
+                  1,
+                  diag) -
+                  sapply(
+                    1 - 2 * rowSums(W * g_i_h),
+                    function (x) {
+                      matrix(x,
+                             nrow = ncol(W),
+                             ncol = ncol(W))}) *
+                  apply(
+                    Wlogit,
+                    1,
+                    function (x) { x %*% t(x) })))
+          }
+          if (gradientalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, 1:length(alpha)]
+          }
+          if (gradientwithoutalpha) {
+            attr(res, "gradient") = attr(res, "gradient")[, -(1:length(alpha))]
+          }
+          return(res)
+        }
+      }
+    }
+    )
+
     result = list()
     pb = txtProgressBar(max = nbatches, style = 3)
     for (i in 0:(nbatches - 1)) {
@@ -566,43 +922,377 @@ ctRUV = function (X, W, Y, C = NULL,
         result,
         parApply(
           cl = cl,
-          tYadjWff[, seq(1 + i * batchsize,
-                         min((i+1) * batchsize, totalsize))],
-          2,
-          function (y, XW) {
-            # ridge occaisionaly takes very long time
-            tryCatch(
-              expr = {
-                R.utils::withTimeout(
-                  {mod = ridge::linearRidge(y ~ 0 + x,
-                                            data = list(y = y, x = XW))
-                  # Use summary.ridgeLinear to get unscaled coefficients,
-                  # because coefficients in mod$coef or pvals(mod)$coef are scaled.
-                  fun = getFromNamespace("summary.ridgeLinear", "ridge")
-                  res = data.frame(fun(mod)$summaries[[mod$chosen.nPCs]]$coefficients)
-                  res$celltypeterm = sub("^x", "", rownames(res))
-                  rownames(res) = NULL
-                  res = res[, c("Estimate", "t.value..scaled.", "Pr...t..",
-                                "celltypeterm")]
-                  colnames(res)[1:3] = c("estimate", "statistic", "p.value")
-                  return(res)
-                  },
-                  timeout = 300) },
-              TimeoutException = function (ex) {
-                data.frame(estimate     = rep(NA, ncol(XW)),
-                           statistic    = rep(NA, ncol(XW)),
-                           p.value      = rep(NA, ncol(XW)),
-                           celltypeterm = colnames(XW)) }) },
-          XW))
+          Yff[seq(1 + i * batchsize,
+                  min((i+1) * batchsize, totalsize)), ],
+          1,
+          function (y, X, W, C, oneXotimesW, mu) {
+            start_alpha = rep(median(y, na.rm = TRUE), ncol(W))
+            lower_alpha = rep(min(y, na.rm = TRUE), ncol(W))
+            upper_alpha = rep(max(y, na.rm = TRUE), ncol(W))
+            start_beta  = matrix(0, nrow = ncol(W), ncol = ncol(X))
+            if (is.null(C)) {
+              start_gamma = NULL
+            } else {
+              start_gamma = rep(0, ncol(C))
+            }
+
+            if (is.null(C)) {
+              x =
+                svd(attr(
+                  mu(X, W, oneXotimesW, start_alpha, start_beta, 0),
+                  "gradient")[, seq(1, ncol(W) * ncol(X)) + ncol(W)])
+            } else {
+              x =
+                svd(attr(
+                  mu(X, W, C, oneXotimesW, start_alpha, start_beta, start_gamma, 0),
+                  "gradient")[, seq(1, ncol(W) * ncol(X)) + ncol(W)])
+            }
+            svdd = x$d
+            sqrtlambdalist = c(
+              0,
+              exp(seq(log(min(svdd)) - 1,
+                      log(max(svdd)) + 1,
+                      length.out = 20)))
+
+            my_nlsalpha = function (y, X, W, oneXotimesW, C,
+                                    start_alpha, start_beta, start_gamma,
+                                    lower_alpha,
+                                    upper_alpha,
+                                    sqrtlambda) {
+              if (is.null(C)) {
+                mod_alpha = nls(y ~ mu(X, W, oneXotimesW,
+                                       alpha, start_beta, sqrtlambda,
+                                       gradientalpha = TRUE),
+                                data = list(y = c(y, rep(0, ncol(X) * ncol(W))),
+                                            X = as.matrix(X),
+                                            W = W,
+                                            oneXotimesW = oneXotimesW),
+                                start = list(alpha = start_alpha),
+                                lower = lower_alpha,
+                                upper = upper_alpha,
+                                algorithm = "port",
+                                control = nls.control(warnOnly = TRUE))
+              } else {
+                mod_alpha = nls(y ~ mu(X, W, C, oneXotimesW,
+                                       alpha, start_beta, start_gamma, sqrtlambda,
+                                       gradientalpha = TRUE),
+                                data = list(y = c(y, rep(0, ncol(X) * ncol(W))),
+                                            X = as.matrix(X),
+                                            W = W,
+                                            C = as.matrix(C),
+                                            oneXotimesW = oneXotimesW),
+                                start = list(alpha = start_alpha),
+                                lower = lower_alpha,
+                                upper = upper_alpha,
+                                algorithm = "port",
+                                control = nls.control(warnOnly = TRUE))
+              }
+              if (! mod_alpha$convInfo$isConv) {
+                return("error")
+              } else {
+                return(list(start_alpha = coef(mod_alpha),
+                            mod_alpha   = mod_alpha))
+              }
+            }
+            my_nlswithoutalpha = function (y, X, W, oneXotimesW, C,
+                                           start_alpha, start_beta, start_gamma,
+                                           lower_alpha,
+                                           upper_alpha,
+                                           sqrtlambda) {
+              if (is.null(C)) {
+                mod = nls(y ~ mu(X, W, oneXotimesW,
+                                 start_alpha, beta, sqrtlambda,
+                                 gradientwithoutalpha = TRUE),
+                          data = list(y = c(y, rep(0, ncol(X) * ncol(W))),
+                                      X = as.matrix(X),
+                                      W = W,
+                                      oneXotimesW = oneXotimesW),
+                          start = list(beta = start_beta),
+                          algorithm = "port",
+                          control = nls.control(warnOnly = TRUE))
+                if (mod$convInfo$isConv) {
+                  start_beta  = matrix(coef(mod)[seq(1, ncol(W) * ncol(X))],
+                                       nrow = ncol(W), ncol = ncol(X))
+                } else {
+                  return("error")
+                }
+              } else {
+                mod = nls(y ~ mu(X, W, C, oneXotimesW,
+                                 start_alpha, beta, gamma, sqrtlambda,
+                                 gradientwithoutalpha = TRUE),
+                          data = list(y = c(y, rep(0, ncol(X) * ncol(W))),
+                                      X = as.matrix(X),
+                                      W = W,
+                                      C = as.matrix(C),
+                                      oneXotimesW = oneXotimesW),
+                          start = list(beta  = start_beta,
+                                       gamma = start_gamma),
+                          algorithm = "port",
+                          control = nls.control(warnOnly = TRUE))
+                if (mod$convInfo$isConv) {
+                  start_beta  = matrix(coef(mod)[seq(1, ncol(W) * ncol(X))],
+                                       nrow = ncol(W), ncol = ncol(X))
+                  start_gamma = coef(mod)[seq(1, ncol(C)) + ncol(W) * ncol(X)]
+                } else {
+                  return("error")
+                }
+              }
+              # compute projection matrix
+              if (is.null(C)) {
+                x = attr(mu(X, W, oneXotimesW,
+                            start_alpha, start_beta,
+                            sqrtlambda),
+                         "gradient")
+              } else {
+                x = attr(mu(X, W, C, oneXotimesW,
+                            start_alpha, start_beta, start_gamma,
+                            sqrtlambda),
+                         "gradient")
+              }
+              e = try({
+                P =
+                  x[1:length(y), ] %*%
+                  solve(t(x) %*% x) %*%
+                  t(x[1:length(y), ])
+              })
+              if (inherits(e, "try-error")) {
+                return("error")
+              }
+              return(list(start_beta  = start_beta,
+                          start_gamma = start_gamma,
+                          mod         = mod,
+                          P           = P))
+            }
+
+            nls_result = my_nlsalpha(y, X, W, oneXotimesW, C,
+                                     start_alpha, start_beta, start_gamma,
+                                     lower_alpha,
+                                     upper_alpha,
+                                     sqrtlambda = 0)
+            # Discard this marker, if nls convergence fails
+            if (is.character(nls_result)) {
+              res =
+                data.frame(estimate     = NA,
+                           statistic    = NA,
+                           p.value      = NA,
+                           celltypeterm = c(colnames(oneXotimesW), colnames(C)))
+              return(res)
+            }
+            start_alpha = nls_result$start_alpha
+            mod_alpha   = nls_result$mod_alpha
+            RSS = sum((residuals(mod_alpha)[1:length(y)])^2)
+            dof_sigma2 = length(y) - length(start_alpha)
+            sigma2 = RSS / dof_sigma2
+
+            # sqrtlambda = 0 or the smallest one that nls converges
+            for (sqrtlambda in sqrtlambdalist) {
+              nls_result = my_nlswithoutalpha(y, X, W, oneXotimesW, C,
+                                              start_alpha, start_beta, start_gamma,
+                                              lower_alpha,
+                                              upper_alpha,
+                                              sqrtlambda)
+              if (! is.character(nls_result)) { # not "error"
+                break()
+              }
+            }
+            # Discard this marker, if nls convergence fails in all of sqrtlambda's.
+            if (is.character(nls_result)) {
+              res =
+                data.frame(estimate     = NA,
+                           statistic    = NA,
+                           p.value      = NA,
+                           celltypeterm = c(colnames(oneXotimesW), colnames(C)))
+              return(res)
+            }
+            start_beta  = nls_result$start_beta
+            start_gamma = nls_result$start_gamma
+            mod         = nls_result$mod
+            P           = nls_result$P
+
+            if (regularize) {
+
+              if (is.null(C)) {
+                x =
+                  svd(attr(
+                    mu(X, W, oneXotimesW, start_alpha, start_beta, 0),
+                    "gradient")[, seq(1, ncol(W) * ncol(X)) + ncol(W)])
+              } else {
+                x =
+                  svd(attr(
+                    mu(X, W, C, oneXotimesW, start_alpha, start_beta, start_gamma, 0),
+                    "gradient")[, seq(1, ncol(W) * ncol(X)) + ncol(W)])
+              }
+              svdd = x$d
+              svdu = x$u
+              svdv = x$v
+
+              # # optimal lambda according to [Hoerl 1975]
+              # yattributabletobeta =
+              #   mu(X, W, C, oneXotimesW, start_alpha, start_beta, start_gamma, sqrtlambda) -
+              #   mu(X, W, C, oneXotimesW, start_alpha, start_beta * 0, start_gamma, sqrtlambda)
+              # yattributabletobeta = yattributabletobeta[1:length(y)]
+              # (t(svdu[1:length(y), ]) %*% yattributabletobeta) / svdd == betaPCR below
+              # mean_betasquared_adjusted =
+              #   mean(start_beta^2) - mean(sigma2 / svdd^2) # unbiased
+              # if (mean_betasquared_adjusted > 0) {
+              #   sqrtlambda = sqrt(sigma2 / mean_betasquared_adjusted)
+              # } else {
+              #   sqrtlambda = svdd[1]
+              # }
+              betaPCR = t(svdv) %*% start_beta  # alpha in [Cule and Iorio 2013]
+              weightedmean_betaPCRsquared_adjusted =
+                sum((svdd * betaPCR)^2 / sigma2 - 1) / sum(svdd^2)
+              if (weightedmean_betaPCRsquared_adjusted > 0) {
+                sqrtlambda = sqrt(1 / weightedmean_betaPCRsquared_adjusted)
+              } else {
+                sqrtlambda = svdd[1]
+              }
+
+              # # optimal lambda according to [Cule and Iorio 2013]
+              # # Simplified such that sigma2 is reused.
+              # betaPCR = t(svdv) %*% start_beta  # alpha in [Cule and Iorio 2013]
+              # dataPCR = data.frame()
+              # for (r in 1:length(betaPCR)) {
+              #   mean_betaPCRsquared_adjusted =
+              #     mean((betaPCR^2 - sigma2 / svdd^2)[1:r]) # unbiased
+              #   if (mean_betaPCRsquared_adjusted > 0) {
+              #     lambda = sigma2 / mean_betaPCRsquared_adjusted
+              #   } else {
+              #     lambda = svdd[1]^2
+              #   }
+              #   dof = sum(1 / (1 + lambda / svdd^2)^2)
+              #   dofres = sum(1 - 1 / (1 + svdd^2 / lambda)^2)
+              #   twolnlik = sum(
+              #     svdd^2 * betaPCR^2 / sigma2 *
+              #       (1 - 1 / (1 + svdd^2 / lambda)^2))
+              #   MSE =
+              #     sum(1 / (1 + svdd^2 / lambda)^2 * betaPCR^2) +
+              #     sum(1 / (1 + lambda / svdd^2)^2 * sigma2 / svdd^2)
+              #   dataPCR = rbind(dataPCR,
+              #                   data.frame(r = r,
+              #                              lambda = lambda,
+              #                              dof = dof,
+              #                              diff = r - dof,
+              #                              dofres = dofres,
+              #                              AIC = 2 * dof - twolnlik,
+              #                              MSE = MSE))
+              # }
+              # sqrtlambda = sqrt(dataPCR$lambda[which.min(dataPCR$diff)])
+
+              # in case of nls convergence failure, try from similar values
+              sqrtlambdalist = c(
+                sqrtlambda,
+                sqrtlambdalist[order(abs(sqrtlambdalist - sqrtlambda))])
+
+              # avoid inheriting false conversion of start_beta
+              start_beta = start_beta * 0
+
+              # GCVdata = data.frame()
+              for (sqrtlambda in sqrtlambdalist) {
+                nls_result = my_nlswithoutalpha(y, X, W, oneXotimesW, C,
+                                                start_alpha, start_beta, start_gamma,
+                                                lower_alpha,
+                                                upper_alpha,
+                                                sqrtlambda)
+                if (! is.character(nls_result)) { # not "error"
+                  break()
+                }
+              }
+
+              start_beta  = nls_result$start_beta
+              start_gamma = nls_result$start_gamma
+              # mod         = nls_result$mod
+              # P           = nls_result$P
+              # dof = sum(diag(P))
+              # RSS = sum((residuals(mod)[1:length(y)])^2)
+              # GCV = length(y) * RSS / (length(y) - dof)^2
+              # AIC = 2 * dof +
+              #   RSS / sigma2 +
+              #   length(y) * log(2 * pi * sigma2)
+              # BIC = log(length(y)) * dof +
+              #   RSS / sigma2 +
+              #   length(y) * log(2 * pi * sigma2)
+              # GCVdata = rbind(GCVdata,
+              #                 data.frame(
+              #                   sqrtlambda = sqrtlambda,
+              #                   dof = dof,
+              #                   GCV = GCV))
+
+            } # regularize
+
+            res = data.frame(estimate = c(start_beta, start_gamma))
+            # Wald test
+            # To be accurate, non-exact t-type test [Halawa 2000]
+            if (is.null(C)) {
+              x = attr(mu(X, W, oneXotimesW,
+                          start_alpha, start_beta,
+                          sqrtlambda),
+                       "gradient")
+              xx = attr(mu(X, W, oneXotimesW,
+                           start_alpha, start_beta,
+                           sqrtlambda),
+                        "hessian")()
+              r = y - mu(X, W, oneXotimesW,
+                         start_alpha, start_beta,
+                         sqrtlambda)[1:length(y)]
+            } else {
+              x = attr(mu(X, W, C, oneXotimesW,
+                          start_alpha, start_beta, start_gamma,
+                          sqrtlambda),
+                       "gradient")
+              xx = attr(mu(X, W, C, oneXotimesW,
+                           start_alpha, start_beta, start_gamma,
+                           sqrtlambda),
+                        "hessian")()
+              r = y - mu(X, W, C, oneXotimesW,
+                         start_alpha, start_beta, start_gamma,
+                         sqrtlambda)[1:length(y)]
+            }
+            x = x[, -(1:length(start_alpha))]
+            xx = lapply(xx,
+                        function (x) {
+                          x[-(1:length(start_alpha)),
+                            -(1:length(start_alpha))] })
+            sigma2Hstar =
+              t(x[1:length(y), ]) %*%
+              x[1:length(y), ]
+            # sigma2Hstarlambdainv = solve(t(x) %*% x)
+            # SE = sqrt(sigma2 * diag(sigma2Hstarlambdainv %*%
+            #                           sigma2Hstar %*%
+            #                           sigma2Hstarlambdainv))
+            z = matrix(
+              rowSums(
+                mapply(
+                  function (x, r) { x * r },
+                  xx,
+                  as.list(r))),
+              nrow = nrow(xx[[1]]))
+            sigma2Hlambdainv = solve(t(x) %*% x - z)
+            SE = sqrt(sigma2 * diag(sigma2Hlambdainv %*%
+                                      sigma2Hstar %*%
+                                      sigma2Hlambdainv))
+            res$statistic = res$estimate / SE
+            res$p.value = pt(- abs(res$statistic), df = dof_sigma2) * 2
+            res_alpha = summary(mod_alpha)$coefficients[, -2]
+            colnames(res_alpha) = c("estimate", "statistic", "p.value")
+            res = rbind(res_alpha, res)
+            res$celltypeterm = c(colnames(oneXotimesW), colnames(C))
+            return(res)
+          },
+          X, W, C, oneXotimesW, mu))
       setTxtProgressBar(pb, i + 1)
     }
     close(pb)
-    ff::delete(tYadjWff)
+    ff::delete(Yff)
     gc()
     result = dplyr::as_tibble(data.table::rbindlist(result, idcol="response"))
-    result$statistic = sign(result$estimate) * result$statistic
 
   }, "glmnet" = { # -----------------------------------------
+    if (!is.null(C)) {
+      tYadjC = lm(y ~ 0 + x,
+                  data = list(y = t(Y), x = C))$residuals
+      Y = t(tYadjC)
+    }
   # For constant terms, don't apply regularization penalty,
   # but bind by (methylation) level in each cell type.
   constantindices = (ncol(X)+1)*(1:ncol(W))
@@ -643,7 +1333,8 @@ ctRUV = function (X, W, Y, C = NULL,
           intercept = 0,
           penalty.factor = penalty.factor,
           lower.limits = lower.limits,
-          upper.limits = upper.limits)
+          upper.limits = upper.limits,
+          standardize = FALSE)
         return(cv_fit$lambda.min) },
       X1W, alpha, penalty.factor, lower.limits, upper.limits)
   if (nrow(Y) < samplingsize) {
@@ -671,7 +1362,8 @@ ctRUV = function (X, W, Y, C = NULL,
           intercept = 0,
           penalty.factor = penalty.factor,
           lower.limits = lower.limits,
-          upper.limits = upper.limits)
+          upper.limits = upper.limits,
+          standardize = FALSE)
         return(mod$beta[, 1]) },
       X1W, alpha, penalty.factor, lower.limits, upper.limits)
   result = as.data.frame(t(result))
