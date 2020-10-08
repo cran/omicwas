@@ -1,7 +1,7 @@
 Package: omicwas
 Type: Package
 Title: Cell-Type-Specific Association Testing in Bulk Omics Experiments
-Version: 0.7.0
+Version: 0.8.0
 Authors@R: person("Fumihiko", "Takeuchi", role = c("aut", "cre"),
                   email = "fumihiko@takeuchi.name",
                   comment = c(ORCID = "0000-0003-3185-5661"))
@@ -22,13 +22,13 @@ License: GPL-3
 Encoding: UTF-8
 LazyData: true
 Imports: broom, data.table, dplyr, ff, glmnet, magrittr, MASS,
-        matrixStats, parallel, PCDimension, rlang, sva, tidyr
-RoxygenNote: 7.1.0
+        matrixStats, parallel, purrr, rlang, tidyr
+RoxygenNote: 7.1.1
 Suggests: testthat, knitr, rmarkdown
 VignetteBuilder: knitr
 NeedsCompilation: no
-Packaged: 2020-06-02 07:51:35 UTC; fumi
+Packaged: 2020-10-08 09:40:09 UTC; fumi
 Author: Fumihiko Takeuchi [aut, cre] (<https://orcid.org/0000-0003-3185-5661>)
 Maintainer: Fumihiko Takeuchi <fumihiko@takeuchi.name>
 Repository: CRAN
-Date/Publication: 2020-06-02 09:40:02 UTC
+Date/Publication: 2020-10-08 12:50:03 UTC

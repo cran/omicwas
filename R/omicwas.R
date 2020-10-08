@@ -76,20 +76,39 @@
 #' \eqn{\lambda \sum_{h k} \beta_{h j k}^2}, where \eqn{\lambda > 0} is the
 #' regularization parameter.
 #'
+#' The propdiff tests try to cope with multicollinearity by, roughly speaking,
+#' using mean-centered \eqn{W_{i h}}.
+#' We obtain, instead of \eqn{\beta_{h j k}}, the deviation of
+#' \eqn{\beta_{h j k}} from the average across cell types.
+#' Accordingly, the null hypothesis changes.
+#' The original null hypothesis was \eqn{\beta_{h j k} = 0}.
+#' The null hypothesis when centered is
+#' \eqn{\beta_{h j k} - (\sum_{i h'} W_{i h'} \beta_{h' j k}) / (\sum_{i h'} W_{i h'}) = 0}.
+#' It becomes difficult to detect a signal for a major cell type,
+#' because \eqn{\beta_{h j k}} would be close to the average across cell types.
+#' The tests \code{propdiff.log} and \code{propdiff.logit} include
+#' an additional preprocessing step that converts \eqn{Y_{j i}} to \eqn{f(Y_{j i})}.
+#' Apart from the preprocessing, the computations are performed in linear scale.
+#' As the preprocessing distorts the linearity between the dependent variable
+#' and (the centered) \eqn{W_{i h}},
+#' I actually think \code{propdiff.identity} is better.
+#'
 #' @param X Matrix (or vector) of traits; samples x traits.
 #' @param W Matrix of cell type composition; samples x cell types.
 #' @param Y Matrix (or vector) of bulk omics measurements; markers x samples.
 #' @param C Matrix (or vector) of covariates; samples x covariates.
 #' X, W, Y, C should be numeric.
 #' @param test Statistical test to apply; either \code{"full"}, \code{"marginal"},
-#' \code{"nls.identity"}, \code{"nls.log"}, \code{"nls.logit"} or \code{"reducedrankridge"}.
+#' \code{"nls.identity"}, \code{"nls.log"}, \code{"nls.logit"},
+#' \code{"propdiff.identity"}, \code{"propdiff.log"}, \code{"propdiff.logit"}
+#' or \code{"reducedrankridge"}.
 #' @param regularize Whether to apply Tikhonov (ie ridge) regularization
 #' to \eqn{\beta_{h j k}}.
 #' The regularization parameter is chosen automatically according to
 #' an unbiased version of (Lawless & Wang, 1976).
-#' Effective for \code{nls.*} tests.
+#' Effective for \code{nls.*} and \code{propdiff.*} tests.
 #' @param num.cores Number of CPU cores to use.
-#' Full and marginal tests are run in serial, thus num.cores is ignored.
+#' Full, marginal and propdiff tests are run in serial, thus num.cores is ignored.
 #' @param chunk.size The size of job for a CPU core in one batch.
 #' If you have many cores but limited memory, and there is a memory failure,
 #' decrease num.cores and/or chunk.size.
@@ -140,8 +159,10 @@ ctassoc = function (X, W, Y, C = NULL,
                     num.cores = 1,
                     chunk.size = 1000,
                     seed = 123) {
-  if (!(test %in% c("reducedrankridge", "full", "marginal", "nls.identity", "nls.log", "nls.logit"))) {
-    abort('Error: test must be either "reducedrankridge", "full", "marginal", "nls.identity", "nls.log", "nls.logit"')
+  if (!(test %in% c("reducedrankridge", "full", "marginal",
+                    "nls.identity", "nls.log", "nls.logit",
+                    "propdiff.identity", "propdiff.log", "propdiff.logit"))) {
+    abort('Error: test must be either "reducedrankridge", "full", "marginal", "nls.identity", "nls.log", "nls.logit", "propdiff.identity", "propdiff.log", "propdiff.logit"')
   }
   X = .as.matrix(X, d = "vertical", nam = "X")
   W = .as.matrix(W, d = "vertical", nam = "W")
@@ -163,21 +184,21 @@ ctassoc = function (X, W, Y, C = NULL,
   }, "nls.identity" = {
     .full_assoc(X, W, Y, C,
                 test = "nls",
-                nls.link = "identity",
+                link = "identity",
                 regularize = regularize,
                 num.cores = num.cores,
                 chunk.size = chunk.size)
   }, "nls.log" = {
     .full_assoc(X, W, Y, C,
                 test = "nls",
-                nls.link = "log",
+                link = "log",
                 regularize = regularize,
                 num.cores = num.cores,
                 chunk.size = chunk.size)
   }, "nls.logit" = {
     .full_assoc(X, W, Y, C,
                 test = "nls",
-                nls.link = "logit",
+                link = "logit",
                 regularize = regularize,
                 num.cores = num.cores,
                 chunk.size = chunk.size)
@@ -195,100 +216,30 @@ ctassoc = function (X, W, Y, C = NULL,
                 test = test,
                 num.cores = num.cores,
                 chunk.size = chunk.size)
+  }, "propdiff.identity" = {
+    .full_assoc(X, W, Y, C,
+                test = "propdiff",
+                link = "identity",
+                regularize = regularize,
+                num.cores = num.cores,
+                chunk.size = chunk.size)
+  }, "propdiff.log" = {
+    .full_assoc(X, W, Y, C,
+                test = "propdiff",
+                link = "log",
+                regularize = regularize,
+                num.cores = num.cores,
+                chunk.size = chunk.size)
+  }, "propdiff.logit" = {
+    .full_assoc(X, W, Y, C,
+                test = "propdiff",
+                link = "logit",
+                regularize = regularize,
+                num.cores = num.cores,
+                chunk.size = chunk.size)
   }, "marginal" = {
     .marginal_assoc(X, W, Y, C)
   })
-}
-
-#' Remove Unwanted Variations prior to applying ctassoc
-#'
-#' Remove Unwanted Variations prior to applying ctassoc
-#'
-#' First, for each marker, the full linear model of the \code{ctassoc}
-#' function is fitted, and the residual is computed.
-#' For the residuals over all markers, the principal components (PCs)
-#' are computed.
-#' The top PCs are regarded as the unwanted variations,
-#' and subtracted from \code{Y}.
-#'
-#' @param X Matrix (or vector) of traits; samples x traits.
-#' @param W Matrix of proportion of cell types; samples x cell types.
-#' @param Y Matrix (or vector) of bulk omics measurements; markers x samples.
-#' @param C Matrix (or vector) of covariates; samples x covariates.
-#' X, W, Y, C should be numeric.
-#' @param method \code{"PCA"} or \code{"SVA"}
-#' @param nPC Number of PCs to be regarded as unwanted variation.
-#' If \code{NULL}, automatically computed by the Auer-Gervini approach.
-#' @return Y adjusted for the unwanted variations.
-#' @seealso ctassoc
-#' @importFrom stats formula lm model.matrix
-#' @export
-ctRUV = function (X, W, Y, C = NULL,
-                  method = "PCA",
-                  nPC = NULL) {
-  X = .as.matrix(X, d = "vertical", nam = "X")
-  W = .as.matrix(W, d = "vertical", nam = "W")
-  Y = .as.matrix(Y, d = "horizontal", nam = "Y")
-  if (!is.null(C)) {
-    C = .as.matrix(C, d = "vertical", nam = "C")
-  }
-  .check_input(X, W, Y, C)
-  X = .colcenter(X)
-  if (!is.null(C)) {
-    C = .colcenter(C)
-  }
-  X1W = as.matrix(do.call(cbind, apply(W, 2, function(W_h) {cbind(as.data.frame(X), 1) * W_h})))
-  switch(method, "PCA" = {
-    if (is.null(C)) {
-      YadjX1W = t(lm(y ~ x,
-                     data = list(y = t(Y), x = X1W))$residuals)
-    } else {
-      YadjX1W = t(lm(y ~ x,
-                     data = list(y = t(Y), x = cbind(X1W, C)))$residuals)
-    }
-    s = svd(YadjX1W)
-    rm(YadjX1W)
-    gc()
-    if (is.null(nPC)) {
-      # nPC computed by Auer-Gervini approach of PCDimension package
-      # Same as below
-      # spca = ClassDiscovery::SamplePCA(YadjX1W)
-      # agDimension(AuerGervini(spca))
-      # agDimension(AuerGervini(spca@variances, dd = dim(YadjX1W)))
-      nPC = PCDimension::agDimension(PCDimension::AuerGervini(
-        Lambda = (s$d)^2/nrow(s$v),
-        dd = c(nrow(s$u), nrow(s$v))))
-    }
-    inform(paste0("Top ", nPC, " PC(s) are regarded as unwanted variation."))
-    if (nPC < length(s$d)) {
-      s$d[(nPC + 1):length(s$d)] = 0
-    }
-    D = diag(s$d)
-    Y = Y - s$u %*% D %*% t(s$v)
-    rm(s, D)
-    gc()
-  }, "SVA" = {
-    if (is.null(C)) {
-      mod = model.matrix(formula(paste(c("~ 0", colnames(X1W)), collapse = " + ")),
-                         data = as.data.frame(X1W))
-      mod0 = model.matrix(formula(paste(c("~ 0", paste0(colnames(W), ".1")), collapse = " + ")),
-                          data = as.data.frame(X1W))
-    } else {
-      mod = model.matrix(formula(paste(c("~ 0", colnames(X1W), colnames(C)), collapse = " + ")),
-                         data = as.data.frame(cbind(X1W, C)))
-      mod0 = model.matrix(formula(paste(c("~ 0", paste0(colnames(W), ".1"), colnames(C)), collapse = " + ")),
-                          data = as.data.frame(cbind(X1W, C)))
-    }
-    sv = sva::sva(Y,
-                  mod,
-                  mod0,
-                  vfilter = min(nrow(Y), 1e4))$sv
-    cat("\n")
-    Y = t(lm(t(Y) ~ sv)$residuals)
-    rm(sv)
-    gc()
-  })
-  return(Y)
 }
 
 .as.matrix = function (X, d, nam = NULL) {
@@ -367,7 +318,7 @@ ctRUV = function (X, W, Y, C = NULL,
 
 .full_assoc = function (X, W, Y, C,
                         test,
-                        nls.link,
+                        link,
                         regularize = TRUE,
                         alpha,
                         lower.limit,
@@ -402,6 +353,15 @@ ctRUV = function (X, W, Y, C = NULL,
                                    function(X_k) {as.data.frame(W) * X_k})))
   colnames(oneXotimesW) =
     sub('([^.]*)\\.([^.]*)', '\\2.\\1', colnames(oneXotimesW), perl = TRUE)
+  Wdiff = cbind(1, W[, -1] -  W[, 1] %*% t(colMeans(W)[-1] / mean(W[, 1])))
+  colnames(Wdiff)[1] = "1"
+  X1Wdiff = as.matrix(do.call(cbind, apply(Wdiff, 2, function(W_h) {cbind(as.data.frame(X), 1) * W_h})))
+  oneWcent = cbind(1, .colcenter(W))
+  colnames(oneWcent)[1] = "1"
+  X1oneWcent = as.matrix(do.call(cbind, apply(oneWcent, 2, function(W_h) {cbind(as.data.frame(X), 1) * W_h})))
+  X1oneWcent = X1oneWcent[, colnames(X1oneWcent) != "1.1"]
+  X1Wcent = as.matrix(do.call(cbind, apply(.colcenter(W), 2, function(W_h) {cbind(as.data.frame(X), 1) * W_h})))
+  XWcent = X1Wcent[, -c((ncol(X)+1)*(1:ncol(W)))]
 
   switch(test, "full" = { # --------------------------------
     inform("Linear regression ...")
@@ -414,6 +374,59 @@ ctRUV = function (X, W, Y, C = NULL,
     }
     result$term = sub("^x", "", result$term)
     result = dplyr::rename(result, celltypeterm = .data$term)
+
+  }, "propdiff" = { # --------------------------------
+    inform("Interaction with proportion difference ...")
+    switch(
+      link,
+      logit = {
+        if (min(Y, na.rm = TRUE) < 0 | max(Y, na.rm = TRUE) > 1) {
+          abort("Error: for test = *.logit, values of Y must be between 0 and 1")
+        }
+        if (min(Y, na.rm = TRUE) == 0 | max(Y, na.rm = TRUE) == 1) {
+          Y = 0.998 * Y + 0.001
+        }
+        Y = qlogis(Y)
+      }, log = {
+        if (min(Y, na.rm = TRUE) <= 0) {
+          abort("Error: for test = *.log, values of Y must be positive")
+        }
+        Y = log(Y)
+      })
+    if (regularize) {
+      if (is.null(C)) {
+        YadjX_W = t(lm(y ~ 0 + x,
+                       data = list(y = t(Y), x = cbind(X, W)))$residuals)
+      } else {
+        YadjX_W = t(lm(y ~ 0 + x,
+                       data = list(y = t(Y), x = cbind(X, W, C)))$residuals)
+      }
+      result = .lmridgeLW76(XWcent, t(YadjX_W))
+    } else {
+      if (is.null(C)) {
+        result = lm(y ~ 0 + x,
+                    data = list(y = t(Y), x = X1Wdiff))
+        rownames(result$coefficients) = sub("^x", "", rownames(result$coefficients))
+        estimatormatrix = - t(colMeans(W)[-1] / mean(W[, 1])) %x% diag(ncol(X) + 1)
+        estimatormatrix = cbind(matrix(0, nrow = ncol(X) + 1, ncol = ncol(X) + 1),
+                                estimatormatrix)
+        rownames(estimatormatrix) = paste(colnames(W)[1], c(colnames(X), "1"), sep = ".")
+        colnames(estimatormatrix) = rownames(result$coefficients)
+      } else {
+        result = lm(y ~ 0 + x,
+                    data = list(y = t(Y), x = cbind(X1Wdiff, C)))
+        rownames(result$coefficients) = sub("^x", "", rownames(result$coefficients))
+        estimatormatrix = - t(colMeans(W)[-1] / mean(W[, 1])) %x% diag(ncol(X) + 1)
+        estimatormatrix = cbind(matrix(0, nrow = ncol(X) + 1, ncol = ncol(X) + 1),
+                                estimatormatrix,
+                                matrix(0, nrow = ncol(X) + 1, ncol = ncol(C)))
+        rownames(estimatormatrix) = paste(colnames(W)[1], c(colnames(X), "1"), sep = ".")
+        colnames(estimatormatrix) = rownames(result$coefficients)
+      }
+      result = .supplement.estimators(result, estimatormatrix)
+      result = dplyr::bind_rows(result, .id = "response")
+      result = dplyr::as_tibble(result)
+    }
 
   }, "reducedrankridge" = { # -----------------------------------------
     inform("Reduced-rank ridge regression ...")
@@ -604,13 +617,13 @@ ctRUV = function (X, W, Y, C = NULL,
     # colnames(estimate) = colnames(SE) = colnames(X1W)
 
   }, "nls" = { # -----------------------------------------
-    inform(paste0("nls.", nls.link, " ..."))
+    inform(paste0("nls.", link, " ..."))
     batchsize = num.cores * chunk.size
     totalsize = nrow(Y)
     nbatches = ceiling(totalsize / batchsize)
 
     switch(
-      nls.link,
+      link,
       logit = {
         if (min(Y, na.rm = TRUE) < 0 | max(Y, na.rm = TRUE) > 1) {
           abort("Error: for test = nls.logit, values of Y must be between 0 and 1")
@@ -632,7 +645,7 @@ ctRUV = function (X, W, Y, C = NULL,
     rm(Y)
     gc()
 
-    mu = switch(nls.link, "identity" = { # --------------------
+    mu = switch(link, "identity" = { # --------------------
       if (is.null(C)) {
         function (X, W, oneXotimesW, alpha, beta, sqrtlambda,
                   gradientalpha = FALSE,
@@ -1267,7 +1280,15 @@ ctRUV = function (X, W, Y, C = NULL,
                   xx,
                   as.list(r))),
               nrow = nrow(xx[[1]]))
-            sigma2Hlambdainv = solve(t(x) %*% x - z)
+            e = try({ sigma2Hlambdainv = solve(t(x) %*% x - z) })
+            if (inherits(e, "try-error")) {
+              res =
+                data.frame(estimate     = NA,
+                           statistic    = NA,
+                           p.value      = NA,
+                           celltypeterm = c(colnames(oneXotimesW), colnames(C)))
+              return(res)
+            }
             SE = sqrt(sigma2 * diag(sigma2Hlambdainv %*%
                                       sigma2Hstar %*%
                                       sigma2Hlambdainv))
